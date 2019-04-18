@@ -1,33 +1,64 @@
 from django.contrib.auth.models import User
+from djmoney.contrib.django_rest_framework import MoneyField
 from rest_framework import serializers
 from .models import Account, Payment
+from decimal import Decimal
+from moneyed import Money, USD
+
 
 class UserSerializer(serializers.ModelSerializer):
+
     def to_representation(self, value):
-        return value.get_username()
+        return {'id': value.id, 'username': value.get_username()}
+
     class Meta:
         model = User
-        fields = ('username',)
+        fields = ('username', 'id')
+
 
 class AccountSerializer(serializers.ModelSerializer):
-    #owner = UserSerializer()
-    owner = serializers.CharField(source='owner.username', read_only=True)
+    owner = serializers.SlugRelatedField(slug_field='username', queryset=User.objects.all())
+    balance = MoneyField(decimal_places=18, max_digits=30, default=Money(amount=Decimal('0.0'), currency=USD))
+
     class Meta:
         model = Account
         fields = '__all__'
 
+
 class PaymentSerializer(serializers.ModelSerializer):
-    #from_account = UserSerializer(source='from_account.owner')
-    #to_account = UserSerializer(source='to_account.owner')
-    from_account = serializers.CharField(source='from_account.owner')
-    to_account = serializers.CharField(source='to_account.owner')
 
     def create(self, validated_data):
-        from_account = Account.objects.get(owner__username=validated_data.get('from_account').get('owner'))
-        to_account = Account.objects.get(owner__username=validated_data.get('to_account').get('owner'))
-        amount = validated_data.get('amount')
-        validated_data = {'from_account': from_account, 'to_account': to_account, 'amount': amount}
+        #from_account = Account.objects.get(owner__username=validated_data.get('from_account').get('owner'))
+        #to_account = Account.objects.get(owner__username=validated_data.get('to_account').get('owner'))
+        #amount = validated_data.get('amount')
+        #validated_data = {'from_account': from_account, 'to_account': to_account, 'amount': amount}
         return Payment.objects.create(**validated_data)
+
+    def validate(self, validated_data):
+        errors = {}
+        # We must block the data we try to modify.
+        if validated_data['from_account']:
+            validated_data['from_account'] = Account.objects.select_for_update().get(pk=validated_data['from_account'].pk)
+        if validated_data['to_account']:
+            validated_data['to_account'] = Account.objects.select_for_update().get(pk=validated_data['to_account'].pk)
+        if validated_data['from_account'] is None and validated_data['to_account'] is None:
+            errors['from_account and to_account'] = ['At least one account field must be defined',]
+        if type(validated_data['amount']) is Decimal:
+            errors['amount'] = ['Currency must be defined explicitly.']
+        if validated_data['from_account'] == validated_data['to_account']:
+            errors['accounts'] = ['Sender and recipient accounts must be different.']
+        else:
+            if validated_data['from_account']:
+                if validated_data['from_account'].balance.currency != validated_data['amount'].currency:
+                    errors['from_account'] = ["Payment must be in currency of sender's account,"]
+                elif validated_data['from_account'].balance < validated_data['amount']:
+                    errors['amount'] = ['Not enough money for the payment',]
+            if validated_data['to_account']:
+                if validated_data['to_account'].balance.currency != validated_data['amount'].currency:
+                    errors['to_account'] = ["Payment must be in currency of recipient's account,"]
+        if errors:
+            raise serializers.ValidationError(errors)
+        return validated_data
 
     class Meta:
         model = Payment
