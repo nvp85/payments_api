@@ -54,6 +54,7 @@ class AccountsTest(TestCase):
         post_data = {
             "owner": self.alice,
             "balance_currency": "PHP",
+            #"balance": "0.000000000000000000"
         }
         response = self.client.post(url, post_data)
         data = json.loads(response.content)
@@ -131,6 +132,7 @@ class PaymentsTest(TestCase):
 
     def test_payments_create(self):
         url = reverse('payment-list')
+        # Correct payment
         amount = 2
         post_data = {
             "amount_currency": "USD",
@@ -143,7 +145,69 @@ class PaymentsTest(TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertTrue(Payment.objects.filter(pk=data['id']).exists())
 
+        # Errors: both accounts are undefined.
+        post_data = {
+            "amount_currency": "USD",
+            "amount": amount,
+            #'from_account': '',
+            #'to_account': ''
+        }
+        response = self.client.post(url, post_data)
+        data = json.loads(response.content)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(data['from_account and to_account'], ['At least one account field must be defined', ])
+
+        # Error: Accounts are the same.
+        post_data = {
+            "amount_currency": "USD",
+            "amount": amount,
+            'from_account': self.bob_acc.id,
+            'to_account': self.bob_acc.id
+        }
+        response = self.client.post(url, post_data)
+        data = json.loads(response.content)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(data['accounts'], ['Sender and recipient accounts must be different.'])
+
+        # Error: Currency is undefined.
+        post_data = {
+            "amount": amount,
+            'from_account': self.bob_acc.id,
+            'to_account': self.alice_acc.id
+
+        }
+        response = self.client.post(url, post_data)
+        data = json.loads(response.content)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(data['amount'], ['Currency must be defined explicitly.'])
+
+        # Error: payment's currency is different from currencies of account's balances
+        post_data = {
+            "amount_currency": PHP,
+            "amount": amount,
+            'from_account': self.bob_acc.id,
+            'to_account': self.alice_acc.id
+        }
+        response = self.client.post(url, post_data)
+        self.assertEqual(response.status_code, 400)
+        data = json.loads(response.content)
+        self.assertEqual(data['from_account'], ["Payment must be in currency of sender's account,"])
+        self.assertEqual(data['to_account'], ["Payment must be in currency of recipient's account,"])
+
+        # Error: not enough money
+        post_data = {
+            "amount_currency": "USD",
+            "amount": 200,
+            'from_account': self.bob_acc.id,
+            'to_account': self.alice_acc.id
+        }
+        response = self.client.post(url, post_data)
+        self.assertEqual(response.status_code, 400)
+        data = json.loads(response.content)
+        self.assertEqual(data['amount'], ['Not enough money for the payment', ])
+
     def test_payment_delete(self):
+        # Deletion is not provided.
         payment = Payment.objects.create(
             from_account=self.alice_acc,
             to_account=self.bob_acc,
@@ -152,7 +216,7 @@ class PaymentsTest(TestCase):
         url = reverse('payment-detail', args=(payment.id,))
         self.assertTrue(Payment.objects.filter(pk=payment.id).exists())
         response = self.client.delete(url)
-        self.assertEqual(response.status_code, 204)
-        self.assertFalse(Payment.objects.filter(pk=payment.id).exists())
+        self.assertEqual(response.status_code, 405)
+        self.assertTrue(Payment.objects.filter(pk=payment.id).exists())
 
 

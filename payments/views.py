@@ -3,7 +3,7 @@ from typing import Any
 from django.shortcuts import render
 from django.contrib.auth.models import User
 from rest_framework.request import Request
-from rest_framework.response import Response
+from rest_framework import mixins
 from rest_framework.serializers import BaseSerializer
 from django.db import transaction
 from .models import Account, Payment
@@ -21,7 +21,10 @@ class AccountViewSet(viewsets.ModelViewSet):
     serializer_class = AccountSerializer
 
 
-class PaymentViewSet(viewsets.ModelViewSet):
+class PaymentViewSet(mixins.CreateModelMixin,
+                     mixins.ListModelMixin,
+                     mixins.RetrieveModelMixin,
+                     viewsets.GenericViewSet):
     queryset = Payment.objects.all()
     serializer_class = PaymentSerializer
 

@@ -36,24 +36,26 @@ class PaymentSerializer(serializers.ModelSerializer):
 
     def validate(self, validated_data):
         errors = {}
+        from_account = validated_data.get('from_account')
+        to_account = validated_data.get('to_account')
         # We must block the data we try to modify.
-        if validated_data['from_account']:
+        if from_account:
             validated_data['from_account'] = Account.objects.select_for_update().get(pk=validated_data['from_account'].pk)
-        if validated_data['to_account']:
+        if to_account:
             validated_data['to_account'] = Account.objects.select_for_update().get(pk=validated_data['to_account'].pk)
-        if validated_data['from_account'] is None and validated_data['to_account'] is None:
+        if not from_account and not to_account:
             errors['from_account and to_account'] = ['At least one account field must be defined',]
-        if type(validated_data['amount']) is Decimal:
-            errors['amount'] = ['Currency must be defined explicitly.']
-        if validated_data['from_account'] == validated_data['to_account']:
+        elif from_account == to_account:
             errors['accounts'] = ['Sender and recipient accounts must be different.']
+        if type(validated_data.get('amount')) is Decimal:
+            errors['amount'] = ['Currency must be defined explicitly.']
         else:
-            if validated_data['from_account']:
+            if from_account:
                 if validated_data['from_account'].balance.currency != validated_data['amount'].currency:
                     errors['from_account'] = ["Payment must be in currency of sender's account,"]
                 elif validated_data['from_account'].balance < validated_data['amount']:
                     errors['amount'] = ['Not enough money for the payment',]
-            if validated_data['to_account']:
+            if to_account:
                 if validated_data['to_account'].balance.currency != validated_data['amount'].currency:
                     errors['to_account'] = ["Payment must be in currency of recipient's account,"]
         if errors:
